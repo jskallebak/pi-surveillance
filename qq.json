@@ -1,0 +1,51 @@
+{
+  "rectangles": [
+    {
+      "name": "r1",
+      "x": 236,
+      "y": 226,
+      "width": 150,
+      "height": 80,
+      "points_swapped": false,
+      "red_signal": true,
+      "blue_signal": false,
+      "yellow_signal": false
+    },
+    {
+      "name": "r2",
+      "x": 386,
+      "y": 373,
+      "width": 200,
+      "height": 100,
+      "points_swapped": false,
+      "red_signal": false,
+      "blue_signal": false,
+      "yellow_signal": false
+    },
+    {
+      "name": "r3",
+      "x": 586,
+      "y": 217,
+      "width": 150,
+      "height": 80,
+      "points_swapped": false,
+      "red_signal": false,
+      "blue_signal": false,
+      "yellow_signal": false
+    }
+  ],
+  "lines": [
+    {
+      "name": "Line_r2_to_r3",
+      "start_rect": "r2",
+      "end_rect": "r3",
+      "start_is_output": true
+    },
+    {
+      "name": "Line_r1_to_r2",
+      "start_rect": "r1",
+      "end_rect": "r2",
+      "start_is_output": true
+    }
+  ]
+}
