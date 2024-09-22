@@ -1,14 +1,41 @@
 import platform
 import sys
+import random
 
 is_raspberry_pi = platform.machine().startswith('armv')
 print(f"Running on a Raspberry Pi: {is_raspberry_pi}")
 print(platform.machine().startswith('armv'))
 
 if is_raspberry_pi:
-    import RPi.GPIO as GPIO
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setwarnings(False)
+    import RPi.GPIO as RealGPIO
+
+    class GPIOWrapper:
+        def __init__(self):
+            self.simulating = True
+
+        def set_simulating(self, simulating):
+            self.simulating = simulating
+
+        def input(self, pin):
+            value = RealGPIO.input(pin)
+            if self.simulating:
+                print(f"GPIO: Reading pin {pin}: {'HIGH' if value else 'LOW'}")
+            return value
+
+        # Implement other necessary methods, forwarding them to RealGPIO
+        def setmode(self, mode):
+            RealGPIO.setmode(mode)
+
+        def setup(self, pin, mode, pull_up_down=None):
+            if pull_up_down:
+                RealGPIO.setup(pin, mode, pull_up_down=pull_up_down)
+            else:
+                RealGPIO.setup(pin, mode)
+
+        def cleanup(self):
+            RealGPIO.cleanup()
+
+    GPIO = GPIOWrapper()
 else:
     print("Not running on a Raspberry Pi. GPIO functionality will be simulated.")
 
@@ -20,9 +47,16 @@ else:
         LOW = 0
         PUD_DOWN = "PUD_DOWN"
         PUD_UP = "PUD_UP"
+        
+        def __init__(self):
+            self.pin_values = {}
+            self.simulating = True
 
         def setmode(self, mode):
             print(f"Mock: Setting GPIO mode to {mode}")
+
+        def set_simulating(self, simulating):
+            self.simulating = simulating
 
         def setwarnings(self, flag):
             print(f"Mock: Setting warnings to {flag}")
@@ -30,11 +64,20 @@ else:
         def setup(self, pin, mode, pull_up_down=None):
             pull_up_down_str = f" with pull_up_down={pull_up_down}" if pull_up_down else ""
             print(f"Mock: Setting up GPIO pin {pin} as {'input' if mode == self.IN else 'output'}{pull_up_down_str}")
+            if pin not in self.pin_values:
+                self.pin_values[pin] = self.LOW  # Initialize to LOW
 
         def input(self, pin):
-            value = random.choice([self.HIGH, self.LOW])  # Simulate random input
-            print(f"Mock: Reading GPIO pin {pin}: {'HIGH' if value == self.HIGH else 'LOW'}")
-            return value
+            if pin not in self.pin_values:
+                self.pin_values[pin] = self.LOW
+            if self.simulating:
+                value = "HIGH" if self.pin_values[pin] == self.HIGH else "LOW"
+                print(f"Mock: Reading GPIO pin {pin}: {value}")
+            return self.pin_values[pin]
+        
+        def set_mock_value(self, pin, value):
+            self.pin_values[pin] = value
+
 
         def cleanup(self, pin=None):
             if pin is None:
@@ -77,6 +120,17 @@ class Rectangle:
         self.blue_signal = False
         self.yellow_signal = False
 
+    def simulate_gpio(self):
+        return random.choice([GPIO.HIGH, GPIO.LOW])
+
+    def get_gpio_state(self, simulating):
+        if self.gpio is None:
+            return None
+        if simulating:
+            return self.simulate_gpio()
+        else:
+            return GPIO.input(self.gpio)
+
     def setup_gpio(self):
         if self.gpio is not None:
             GPIO.setup(self.gpio, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
@@ -100,6 +154,11 @@ class Rectangle:
         else:
             self.p2 = (self.x, self.y + (self.height / 2))
             self.p1 = (self.x + self.width, self.y + (self.height / 2))
+
+    def set_mock_gpio(self, value):
+        if self.gpio is not None:
+            GPIO.set_mock_value(self.gpio, value)
+
 
     def update_connection_points(self):
         if not self.points_swapped:
@@ -199,6 +258,8 @@ class Rectangle:
     def set_signal(self, color, signal):
         if color == "red":
             self.red_signal = signal
+            if self.gpio is not None:
+                GPIO.set_mock_value(self.gpio, GPIO.HIGH if signal else GPIO.LOW)
         elif color == "blue":
             self.blue_signal = signal
         elif color == "yellow":
@@ -215,6 +276,12 @@ class Rectangle:
             return self.yellow_signal
         else:
             raise ValueError("Invalid color. Use 'red', 'blue', or 'yellow'.")
+        
+        def get_gpio_state(self, simulating):
+            if self.gpio is None:
+                return None
+            return GPIO.input(self.gpio)
+    
 
 class Line:
     def __init__(self, name, start_shape, end_shape, start_is_output=True):
@@ -299,15 +366,44 @@ class Point:
         return (self.x, self.y)
 
 class DrawingApp:
-    def __init__(self, master, live_mode=False, load_file=None):
+    def __init__(self, master, live_mode=False, load_file=True):
         self.master = master
-        self.master.title("Enhanced Drawing App")
         self.live_mode = live_mode
+        self.default_canvas_file = "qq.json"
+
+        self.simulating = True
         
         self.canvas = tk.Canvas(self.master, width=800, height=600, bg="white")
         self.canvas.pack()
         
+        self.rectangles = {}
+        self.lines = {}
+        self.points = {}
+
+        self.dragged_shape = None
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+        self.temp_connections = []
+
+        self.polling = False
+        self.poll_thread = None
+
+        if load_file:
+            self.load_canvas(self.default_canvas_file)
+        else:
+            self.create_initial_setup()
+
         if not live_mode:
+
+            self.canvas.bind("<ButtonPress-1>", self.on_press)
+            self.canvas.bind("<B1-Motion>", self.on_drag)
+            self.canvas.bind("<ButtonRelease-1>", self.on_release)
+
+            self.setup_ui()
+            self.start_gpio_polling()
+            self.simulate_button.config(text=f"Simulation: {'ON' if self.simulating else 'OFF'}")
+
+    def setup_ui(self):
             # Create a frame for the buttons
             self.button_frame = tk.Frame(self.master)
             self.button_frame.pack(pady=5)
@@ -363,30 +459,34 @@ class DrawingApp:
             self.toggle_all_points_visibility_button = tk.Button(self.button_frame, text="Toggle All Points Visibility", command=self.toggle_all_points_visibility)
             self.toggle_all_points_visibility_button.grid(row=2, column=2, padx=5, pady=5) 
 
-        self.rectangles = {}
-        self.lines = {}
-        self.points = {}
+            # Add the simulation toggle button
+            self.simulate_button = tk.Button(self.button_frame, text="Simulation: ON", command=self.toggle_simulation)
+            self.simulate_button.grid(row=3, column=0, padx=5, pady=5)
 
-        self.dragged_shape = None
-        self.drag_start_x = 0
-        self.drag_start_y = 0
-        self.temp_connections = []
 
-        # Only bind mouse events if not in live mode
-        if not live_mode:
-            self.canvas.bind("<ButtonPress-1>", self.on_press)
-            self.canvas.bind("<B1-Motion>", self.on_drag)
-            self.canvas.bind("<ButtonRelease-1>", self.on_release)
 
-        # Set the default canvas file path
-        self.default_canvas_file = "qq.json"
+    def toggle_simulation(self):
+        self.simulating = not self.simulating
+        GPIO.set_simulating(self.simulating) 
+        status = "ON" if self.simulating else "OFF"
+        print(f"Simulation mode is now {status}")
+        self.simulate_button.config(text=f"Simulation: {status}")
+        
+        if not self.simulating:
+            # Set consistent mock values when turning simulation off
+            for rect in self.rectangles.values():
+                if rect.gpio is not None:
+                    rect.set_mock_gpio(GPIO.LOW) 
+        
+        self.update_all_rectangles()
 
-        # Load canvas if specified, otherwise create initial setup
-        print(f"load_file: {load_file}")
-        if load_file:
-            self.load_canvas(self.default_canvas_file)
-        else:
-            self.create_initial_setup()
+    def update_all_rectangles(self):
+            for rect in self.rectangles.values():
+                if rect.gpio is not None:
+                    value = rect.get_gpio_state(self.simulating)
+                    if value is not None:
+                        rect.set_signal("red", value == GPIO.HIGH)
+                        rect.draw(self.canvas)
 
 
     def load_default_canvas(self):
@@ -713,47 +813,28 @@ class DrawingApp:
             if isinstance(shape, Rectangle):
                 if shape.x <= event.x <= shape.x + shape.width and shape.y <= event.y <= shape.y + shape.height:
                     self.dragged_shape = shape
-                    self.drag_start_x = event.x
-                    self.drag_start_y = event.y
+                    self.drag_start_x = event.x - shape.x
+                    self.drag_start_y = event.y - shape.y
                     break
             elif isinstance(shape, Point):
                 if shape.x - 5 <= event.x <= shape.x + 5 and shape.y - 5 <= event.y <= shape.y + 5:
                     self.dragged_shape = shape
-                    self.drag_start_x = event.x
-                    self.drag_start_y = event.y
+                    self.drag_start_x = event.x - shape.x
+                    self.drag_start_y = event.y - shape.y
                     break
 
     def on_drag(self, event):
         if self.live_mode or not self.dragged_shape:
             return
         
-        dx = event.x - self.drag_start_x
-        dy = event.y - self.drag_start_y
+        new_x = event.x - self.drag_start_x
+        new_y = event.y - self.drag_start_y
         
-        # Move the shape on the canvas
-        if isinstance(self.dragged_shape, Rectangle):
-            self.canvas.move(self.dragged_shape.canvas_item, dx, dy)
-            self.canvas.move(self.dragged_shape.text_item, dx, dy)
-            self.canvas.move(self.dragged_shape.p1_item, dx, dy)
-            self.canvas.move(self.dragged_shape.p2_item, dx, dy)
-            self.canvas.move(self.dragged_shape.red_box, dx, dy)
-            self.canvas.move(self.dragged_shape.blue_box, dx, dy)
-            self.canvas.move(self.dragged_shape.yellow_box, dx, dy)
-        elif isinstance(self.dragged_shape, Point):
-            self.canvas.move(self.dragged_shape.canvas_item, dx, dy)
-            self.canvas.move(self.dragged_shape.text_item, dx, dy)
-        
-        # Update the shape's internal coordinates
-        self.dragged_shape.move_to(self.dragged_shape.x + dx, self.dragged_shape.y + dy)
+        self.dragged_shape.move_to(new_x, new_y)
+        self.dragged_shape.draw(self.canvas)
         
         # Update connected lines
-        for line in self.lines.values():
-            if line.start_shape == self.dragged_shape or line.end_shape == self.dragged_shape:
-                line.update_coordinates()
-                self.canvas.coords(line.canvas_item, line.x1, line.y1, line.x2, line.y2)
-        
-        self.drag_start_x = event.x
-        self.drag_start_y = event.y
+        self.update_connected_lines(self.dragged_shape)
 
     def on_release(self, event):
         if self.live_mode:
@@ -806,10 +887,7 @@ class DrawingApp:
         for line in self.lines.values():
             if line.start_shape == shape or line.end_shape == shape:
                 line.update_coordinates()
-                if line.canvas_item:
-                    self.canvas.coords(line.canvas_item, line.x1, line.y1, line.x2, line.y2)
-                else:
-                    line.draw(self.canvas)
+                line.draw(self.canvas)
 
     def update_canvas(self):
         self.canvas.delete("all")  # Clear the canvas
@@ -834,8 +912,19 @@ class DrawingApp:
         if rect_name in self.rectangles:
             rect = self.rectangles[rect_name]
             current_signal = rect.get_signal(color)
-            rect.set_signal(color, not current_signal)
+            new_signal = not current_signal
+            rect.set_signal(color, new_signal)
+            
+            # Update the GPIO state (real or simulated)
+            if rect.gpio is not None:
+                if self.simulating:
+                    # Update the simulated GPIO state
+                    rect.set_mock_gpio(GPIO.HIGH if new_signal else GPIO.LOW)
+                else:
+                    rect.set_mock_gpio(GPIO.HIGH if new_signal else GPIO.LOW)
+            
             rect.draw(self.canvas)
+            print(f"Toggled {color} signal for {rect_name} to {new_signal}")
         else:
             print(f"Rectangle '{rect_name}' not found.")
 
@@ -922,34 +1011,42 @@ class DrawingApp:
 
 
     def start_gpio_polling(self):
-        self.polling = True
-        self.poll_thread = Thread(target=self.poll_gpio)
-        self.poll_thread.start()
+        if not self.polling:
+            self.polling = True
+            self.poll_thread = Thread(target=self.poll_gpio)
+            self.poll_thread.daemon = True
+            self.poll_thread.start()
 
     def stop_gpio_polling(self):
         self.polling = False
-        if self.poll_thread:
-            self.poll_thread.join()
+        if self.poll_thread and self.poll_thread.is_alive():
+            self.poll_thread.join(timeout=1)
 
     def poll_gpio(self):
         while self.polling:
             for rect in self.rectangles.values():
                 if rect.gpio is not None:
-                    value = rect.read_gpio()
-                    if value == GPIO.HIGH:
-                        rect.set_signal("red", True)
-                    else:
-                        rect.set_signal("red", False)
-                    rect.draw(self.canvas)
-            sleep(0.1)
+                    value = rect.get_gpio_state(self.simulating)
+                    if value is not None:
+                        rect.set_signal("red", value == GPIO.HIGH)
+                        self.master.after(0, rect.draw, self.canvas)
+            sleep(1)
+
 
     def cleanup(self):
+        print("Starting cleanup...")
         self.stop_gpio_polling()
+        print("GPIO polling stopped.")
+        
         print("Cleaning up GPIO...")
         GPIO.cleanup()
-        print("Exiting application...")
+        
+        print("Destroying Tkinter window...")
         self.master.quit()
         self.master.destroy()
+        
+        print("Exiting application...")
+        sys.exit(0)
 
 
 
@@ -963,6 +1060,30 @@ if __name__ == "__main__":
             break
 
     root = tk.Tk()
-    app = DrawingApp(root, live_mode=live_mode, load_file=load_file)
-    root.protocol("WM_DELETE_WINDOW", app.cleanup)
-    root.mainloop()
+    app = None
+
+    try:
+        app = DrawingApp(root, live_mode=live_mode, load_file=load_file)
+        
+        def on_closing():
+            if app:
+                try:
+                    app.cleanup()
+                except Exception as e:
+                    print(f"Error during cleanup: {e}")
+                    import traceback
+                    traceback.print_exc()
+            root.destroy()
+            sys.exit(0)
+        
+        root.protocol("WM_DELETE_WINDOW", on_closing)
+        root.mainloop()
+    except Exception as e:
+        print(f"Error during application execution: {e}")
+        import traceback
+        traceback.print_exc()
+        if app:
+            app.cleanup()
+        else:
+            root.destroy()
+        sys.exit(1)
