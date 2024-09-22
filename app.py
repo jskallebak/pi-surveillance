@@ -1,17 +1,67 @@
+import platform
+import sys
+
+is_raspberry_pi = platform.machine().startswith('armv')
+
+if is_raspberry_pi:
+    import RPi.GPIO as GPIO
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
+else:
+    print("Not running on a Raspberry Pi. GPIO functionality will be simulated.")
+
+    class MockGPIO:
+        BCM = "BCM"
+        OUT = "OUT"
+        IN = "IN"
+        HIGH = 1
+        LOW = 0
+        PUD_DOWN = "PUD_DOWN"
+        PUD_UP = "PUD_UP"
+
+        def setmode(self, mode):
+            print(f"Mock: Setting GPIO mode to {mode}")
+
+        def setwarnings(self, flag):
+            print(f"Mock: Setting warnings to {flag}")
+
+        def setup(self, pin, mode, pull_up_down=None):
+            pull_up_down_str = f" with pull_up_down={pull_up_down}" if pull_up_down else ""
+            print(f"Mock: Setting up GPIO pin {pin} as {'input' if mode == self.IN else 'output'}{pull_up_down_str}")
+
+        def input(self, pin):
+            value = random.choice([self.HIGH, self.LOW])  # Simulate random input
+            print(f"Mock: Reading GPIO pin {pin}: {'HIGH' if value == self.HIGH else 'LOW'}")
+            return value
+
+        def cleanup(self, pin=None):
+            if pin is None:
+                print("Mock: Cleaning up all GPIO pins")
+            else:
+                print(f"Mock: Cleaning up GPIO pin {pin}")
+
+    GPIO = MockGPIO()
+
+
 import tkinter as tk
 from tkinter import simpledialog, filedialog
-import sys
 import json
+from time import sleep
+from threading import Thread
 
 class Rectangle:
-    def __init__(self, name, x, y, width, height):
+    def __init__(self, name, x, y, width, height, gpio=None):
         self.name = name
         self.x = x
         self.y = y
         self.width = width
         self.height = height
+        self.gpio = gpio
+        if self.gpio is not None:
+            self.setup_gpio()
         self.canvas_item = None
         self.text_item = None
+        self.gpio_text_item = None
         self.p1_item = None  # Input point (left)
         self.p2_item = None  # Output point (right)
         self.points_swapped = False
@@ -24,6 +74,22 @@ class Rectangle:
         self.red_signal = False
         self.blue_signal = False
         self.yellow_signal = False
+
+    def setup_gpio(self):
+        if self.gpio is not None:
+            GPIO.setup(self.gpio, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+
+    def update_gpio(self, new_gpio):
+        if self.gpio is not None:
+            GPIO.cleanup(self.gpio)
+        self.gpio = new_gpio
+        if self.gpio is not None:
+            self.setup_gpio()
+
+    def read_gpio(self):
+        if self.gpio is not None:
+            return GPIO.input(self.gpio)
+        return None
 
     def update_connection_points(self):
         if not self.points_swapped:
@@ -46,6 +112,8 @@ class Rectangle:
             canvas.delete(self.canvas_item)
         if self.text_item:
             canvas.delete(self.text_item)
+        if self.gpio_text_item:
+            canvas.delete(self.gpio_text_item)
         if self.p1_item:
             canvas.delete(self.p1_item)
         if self.p2_item:
@@ -68,6 +136,15 @@ class Rectangle:
             font=("Arial", 10),
             fill="black"
         )
+        
+        if self.gpio is not None:
+            self.gpio_text_item = canvas.create_text(
+                self.x + 5, self.y + 20,  # Adjust the y-coordinate as needed
+                text=f"gpio: {self.gpio}",
+                anchor="nw",
+                font=("Arial", 8),
+                fill="black"
+            )
         
         point_radius = 3
         self.p1_item = canvas.create_oval(
@@ -127,6 +204,16 @@ class Rectangle:
         else:
             raise ValueError("Invalid color. Use 'red', 'blue', or 'yellow'.")
 
+    def get_signal(self, color):
+        if color == "red":
+            return self.red_signal
+        elif color == "blue":
+            return self.blue_signal
+        elif color == "yellow":
+            return self.yellow_signal
+        else:
+            raise ValueError("Invalid color. Use 'red', 'blue', or 'yellow'.")
+
 class Line:
     def __init__(self, name, start_shape, end_shape, start_is_output=True):
         self.name = name
@@ -150,7 +237,6 @@ class Line:
     def draw(self, canvas):
         if self.canvas_item:
             canvas.delete(self.canvas_item)
-        self.update_coordinates()
         self.canvas_item = canvas.create_line(
             self.x1, self.y1, self.x2, self.y2,
             fill="red", width=2
@@ -231,6 +317,10 @@ class DrawingApp:
             # Add new button for adding points
             self.add_point_button = tk.Button(self.button_frame, text="Add Point", command=self.prompt_add_point)
             self.add_point_button.grid(row=0, column=1, padx=5, pady=5)
+
+            # Move shape button
+            self.move_shape_button = tk.Button(self.button_frame, text="Move Shape", command=self.prompt_move_shape)
+            self.move_shape_button.grid(row=0, column=2, padx=5, pady=5)  # Adjust row and column as needed
             
             # Second row of buttons
             self.connect_shapes_button = tk.Button(self.button_frame, text="Connect Shapes", command=self.prompt_connect_shapes)
@@ -354,6 +444,7 @@ class DrawingApp:
                 "y": rect.y,
                 "width": rect.width,
                 "height": rect.height,
+                "gpio": rect.gpio,  # Add this line to save the GPIO value
                 "points_swapped": rect.points_swapped,
                 "red_signal": rect.red_signal,
                 "blue_signal": rect.blue_signal,
@@ -365,7 +456,7 @@ class DrawingApp:
                 "name": point.name,
                 "x": point.x,
                 "y": point.y,
-                "is_visible": point.is_visible 
+                "is_visible": point.is_visible
             })
 
         for line in self.lines.values():
@@ -389,7 +480,17 @@ class DrawingApp:
             self.clear_canvas()
 
             for rect_data in canvas_state["rectangles"]:
-                rect = Rectangle(rect_data["name"], rect_data["x"], rect_data["y"], rect_data["width"], rect_data["height"])
+                gpio = rect_data.get("gpio")
+                if gpio == 0:
+                    gpio = None
+                rect = Rectangle(
+                    rect_data["name"],
+                    rect_data["x"],
+                    rect_data["y"],
+                    rect_data["width"],
+                    rect_data["height"],
+                    gpio
+                )
                 rect.points_swapped = rect_data["points_swapped"]
                 rect.red_signal = rect_data.get("red_signal", False)
                 rect.blue_signal = rect_data.get("blue_signal", False)
@@ -435,13 +536,18 @@ class DrawingApp:
         y = simpledialog.askinteger("Input", f"Enter y coordinate for {name}:", parent=self.master, initialvalue=rectangle.y if rectangle else 0)
         width = simpledialog.askinteger("Input", f"Enter width for {name}:", parent=self.master, initialvalue=rectangle.width if rectangle else 50)
         height = simpledialog.askinteger("Input", f"Enter height for {name}:", parent=self.master, initialvalue=rectangle.height if rectangle else 50)
+        gpio = simpledialog.askinteger("Input", f"Enter GPIO pin for {name} (or 0 for none):", parent=self.master, initialvalue=rectangle.gpio if rectangle else 0)
         
+        if gpio == 0:
+            gpio = None
+
         if all(value is not None for value in (x, y, width, height)):
             if rectangle:
                 rectangle.x, rectangle.y, rectangle.width, rectangle.height = x, y, width, height
+                rectangle.update_gpio(gpio)
                 rectangle.update_connection_points()
             else:
-                rectangle = Rectangle(name, x, y, width, height)
+                rectangle = Rectangle(name, x, y, width, height, gpio)
                 self.rectangles[name] = rectangle
             
             rectangle.draw(self.canvas)
@@ -449,6 +555,7 @@ class DrawingApp:
             print(f"Rectangle '{name}' {'updated' if name in self.rectangles else 'created'}.")
         else:
             print("Operation cancelled or invalid input.")
+
 
     def prompt_move_shape(self):
         if not self.rectangles and not self.lines:
@@ -604,38 +711,52 @@ class DrawingApp:
             if isinstance(shape, Rectangle):
                 if shape.x <= event.x <= shape.x + shape.width and shape.y <= event.y <= shape.y + shape.height:
                     self.dragged_shape = shape
-                    self.drag_start_x = event.x - shape.x
-                    self.drag_start_y = event.y - shape.y
+                    self.drag_start_x = event.x
+                    self.drag_start_y = event.y
                     break
             elif isinstance(shape, Point):
                 if shape.x - 5 <= event.x <= shape.x + 5 and shape.y - 5 <= event.y <= shape.y + 5:
                     self.dragged_shape = shape
-                    self.drag_start_x = event.x - shape.x
-                    self.drag_start_y = event.y - shape.y
+                    self.drag_start_x = event.x
+                    self.drag_start_y = event.y
                     break
-        
-        if self.dragged_shape:
-            self.temp_connections = self.get_connected_with_info(self.dragged_shape.name)
-            self.remove_connections(self.dragged_shape.name)
 
     def on_drag(self, event):
         if self.live_mode or not self.dragged_shape:
             return
-        new_x = event.x - self.drag_start_x
-        new_y = event.y - self.drag_start_y
-        self.dragged_shape.move_to(new_x, new_y)
-        self.dragged_shape.draw(self.canvas)
-        self.update_connected_lines(self.dragged_shape)
+        
+        dx = event.x - self.drag_start_x
+        dy = event.y - self.drag_start_y
+        
+        # Move the shape on the canvas
+        if isinstance(self.dragged_shape, Rectangle):
+            self.canvas.move(self.dragged_shape.canvas_item, dx, dy)
+            self.canvas.move(self.dragged_shape.text_item, dx, dy)
+            self.canvas.move(self.dragged_shape.p1_item, dx, dy)
+            self.canvas.move(self.dragged_shape.p2_item, dx, dy)
+            self.canvas.move(self.dragged_shape.red_box, dx, dy)
+            self.canvas.move(self.dragged_shape.blue_box, dx, dy)
+            self.canvas.move(self.dragged_shape.yellow_box, dx, dy)
+        elif isinstance(self.dragged_shape, Point):
+            self.canvas.move(self.dragged_shape.canvas_item, dx, dy)
+            self.canvas.move(self.dragged_shape.text_item, dx, dy)
+        
+        # Update the shape's internal coordinates
+        self.dragged_shape.move_to(self.dragged_shape.x + dx, self.dragged_shape.y + dy)
+        
+        # Update connected lines
+        for line in self.lines.values():
+            if line.start_shape == self.dragged_shape or line.end_shape == self.dragged_shape:
+                line.update_coordinates()
+                self.canvas.coords(line.canvas_item, line.x1, line.y1, line.x2, line.y2)
+        
+        self.drag_start_x = event.x
+        self.drag_start_y = event.y
 
     def on_release(self, event):
         if self.live_mode:
             return
-        if self.dragged_shape:
-            # Reconnect stored connections
-            self.reconnect(self.dragged_shape.name, self.temp_connections)
-            self.dragged_shape = None
-            self.temp_connections = []
-            self.update_canvas()
+        self.dragged_shape = None
 
     def remove_connections(self, shape_name):
         shape = self.rectangles.get(shape_name) or self.points.get(shape_name)
@@ -683,7 +804,10 @@ class DrawingApp:
         for line in self.lines.values():
             if line.start_shape == shape or line.end_shape == shape:
                 line.update_coordinates()
-                line.draw(self.canvas)
+                if line.canvas_item:
+                    self.canvas.coords(line.canvas_item, line.x1, line.y1, line.x2, line.y2)
+                else:
+                    line.draw(self.canvas)
 
     def update_canvas(self):
         self.canvas.delete("all")  # Clear the canvas
@@ -755,19 +879,6 @@ class DrawingApp:
         else:
             print("Operation cancelled or invalid input.")
 
-    def prompt_move_shape(self):       
-        if isinstance(shape, Point):
-            new_x = simpledialog.askinteger("Input", f"Enter new x coordinate for {name}:", parent=self.master)
-            new_y = simpledialog.askinteger("Input", f"Enter new y coordinate for {name}:", parent=self.master)
-            
-            if new_x is not None and new_y is not None:
-                shape.move_to(new_x, new_y)
-                shape.draw(self.canvas)
-                self.update_connected_lines(shape)
-                print(f"Point '{name}' moved to ({new_x}, {new_y}).")
-            else:
-                print("Move operation cancelled or invalid input.")
-
     def prompt_connect_shapes(self):
         if len(self.rectangles) + len(self.points) < 2:
             print("You need at least two shapes to connect. Please create more shapes.")
@@ -808,6 +919,37 @@ class DrawingApp:
         print(f"All points are now {visibility}.")
 
 
+    def start_gpio_polling(self):
+        self.polling = True
+        self.poll_thread = Thread(target=self.poll_gpio)
+        self.poll_thread.start()
+
+    def stop_gpio_polling(self):
+        self.polling = False
+        if self.poll_thread:
+            self.poll_thread.join()
+
+    def poll_gpio(self):
+        while self.polling:
+            for rect in self.rectangles.values():
+                if rect.gpio is not None:
+                    value = rect.read_gpio()
+                    if value == GPIO.HIGH:
+                        rect.set_signal("red", True)
+                    else:
+                        rect.set_signal("red", False)
+                    rect.draw(self.canvas)
+            sleep(0.1)
+
+    def cleanup(self):
+        self.stop_gpio_polling()
+        print("Cleaning up GPIO...")
+        GPIO.cleanup()
+        print("Exiting application...")
+        self.master.quit()
+        self.master.destroy()
+
+
 
 if __name__ == "__main__":
     live_mode = "--live" in sys.argv
@@ -820,4 +962,5 @@ if __name__ == "__main__":
 
     root = tk.Tk()
     app = DrawingApp(root, live_mode=live_mode, load_file=load_file)
+    root.protocol("WM_DELETE_WINDOW", app.cleanup)
     root.mainloop()
