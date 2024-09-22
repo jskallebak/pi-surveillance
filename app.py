@@ -2,6 +2,8 @@ import platform
 import sys
 
 is_raspberry_pi = platform.machine().startswith('armv')
+print(f"Running on a Raspberry Pi: {is_raspberry_pi}")
+print(platform.machine().startswith('armv'))
 
 if is_raspberry_pi:
     import RPi.GPIO as GPIO
