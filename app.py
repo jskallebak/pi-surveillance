@@ -2,7 +2,7 @@ import platform
 import sys
 import random
 
-is_raspberry_pi = platform.machine().startswith('armv')
+is_raspberry_pi = platform.machine().startswith('aarch64')
 print(f"Running on a Raspberry Pi: {is_raspberry_pi}")
 print(platform.machine())
 
