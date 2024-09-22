@@ -11,7 +11,7 @@ if is_raspberry_pi:
 
     class GPIOWrapper:
         def __init__(self):
-            self.simulating = True
+            self.simulating = False
             # Add these attributes
             self.BCM = RealGPIO.BCM
             self.IN = RealGPIO.IN
@@ -20,15 +20,20 @@ if is_raspberry_pi:
             self.PUD_UP = RealGPIO.PUD_UP
             self.HIGH = RealGPIO.HIGH
             self.LOW = RealGPIO.LOW
+            self.mock_values = {}
 
         def set_simulating(self, simulating):
             self.simulating = simulating
 
+        def set_mock_value(self, pin, value):
+            self.mock_values[pin] = value
+
         def input(self, pin):
-            value = RealGPIO.input(pin)
             if self.simulating:
-                print(f"GPIO: Reading pin {pin}: {'HIGH' if value else 'LOW'}")
-            return value
+                value = self.mock_values.get(pin, self.LOW)
+                print(f"GPIO: Reading pin {pin}: {'HIGH' if value == self.HIGH else 'LOW'}")
+                return value
+            return RealGPIO.input(pin)
 
         # Implement other necessary methods, forwarding them to RealGPIO
         def setmode(self, mode):
@@ -59,7 +64,7 @@ else:
         
         def __init__(self):
             self.pin_values = {}
-            self.simulating = True
+            self.simulating = False
 
         def setmode(self, mode):
             print(f"Mock: Setting GPIO mode to {mode}")
@@ -268,7 +273,11 @@ class Rectangle:
         if color == "red":
             self.red_signal = signal
             if self.gpio is not None:
-                GPIO.set_mock_value(self.gpio, GPIO.HIGH if signal else GPIO.LOW)
+                if isinstance(GPIO, GPIOWrapper):
+                    GPIO.set_mock_value(self.gpio, GPIO.HIGH if signal else GPIO.LOW)
+                else:
+                    # For MockGPIO
+                    GPIO.set_mock_value(self.gpio, GPIO.HIGH if signal else GPIO.LOW)
         elif color == "blue":
             self.blue_signal = signal
         elif color == "yellow":
@@ -286,10 +295,10 @@ class Rectangle:
         else:
             raise ValueError("Invalid color. Use 'red', 'blue', or 'yellow'.")
         
-        def get_gpio_state(self, simulating):
-            if self.gpio is None:
-                return None
-            return GPIO.input(self.gpio)
+    def get_gpio_state(self, simulating):
+        if self.gpio is None:
+            return None
+        return GPIO.input(self.gpio)
     
 
 class Line:
@@ -380,7 +389,7 @@ class DrawingApp:
         self.live_mode = live_mode
         self.default_canvas_file = "qq.json"
 
-        self.simulating = True
+        self.simulating = False
         
         self.canvas = tk.Canvas(self.master, width=800, height=600, bg="white")
         self.canvas.pack()
@@ -409,8 +418,9 @@ class DrawingApp:
             self.canvas.bind("<ButtonRelease-1>", self.on_release)
 
             self.setup_ui()
-            self.start_gpio_polling()
+            
             self.simulate_button.config(text=f"Simulation: {'ON' if self.simulating else 'OFF'}")
+        self.start_gpio_polling()
 
     def setup_ui(self):
             # Create a frame for the buttons
@@ -1035,11 +1045,14 @@ class DrawingApp:
         while self.polling:
             for rect in self.rectangles.values():
                 if rect.gpio is not None:
-                    value = rect.get_gpio_state(self.simulating)
-                    if value is not None:
-                        rect.set_signal("red", value == GPIO.HIGH)
-                        self.master.after(0, rect.draw, self.canvas)
-            sleep(1)
+                    try:
+                        value = rect.get_gpio_state(self.simulating)
+                        if value is not None:
+                            rect.set_signal("red", value == GPIO.HIGH)
+                            self.master.after(0, rect.draw, self.canvas)
+                    except Exception as e:
+                        print(f"Error polling GPIO for rectangle {rect.name}: {str(e)}")
+            sleep(.1)
 
 
     def cleanup(self):
