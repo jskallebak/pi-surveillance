@@ -4,7 +4,7 @@ import random
 
 is_raspberry_pi = platform.machine().startswith('armv')
 print(f"Running on a Raspberry Pi: {is_raspberry_pi}")
-print(platform.machine().startswith('armv'))
+print(platform.machine())
 
 if is_raspberry_pi:
     import RPi.GPIO as RealGPIO
@@ -12,6 +12,14 @@ if is_raspberry_pi:
     class GPIOWrapper:
         def __init__(self):
             self.simulating = True
+            # Add these attributes
+            self.BCM = RealGPIO.BCM
+            self.IN = RealGPIO.IN
+            self.OUT = RealGPIO.OUT
+            self.PUD_DOWN = RealGPIO.PUD_DOWN
+            self.PUD_UP = RealGPIO.PUD_UP
+            self.HIGH = RealGPIO.HIGH
+            self.LOW = RealGPIO.LOW
 
         def set_simulating(self, simulating):
             self.simulating = simulating
@@ -1087,5 +1095,3 @@ if __name__ == "__main__":
         else:
             root.destroy()
         sys.exit(1)
-
-        
