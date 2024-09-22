@@ -44,6 +44,7 @@ if is_raspberry_pi:
             RealGPIO.cleanup()
 
     GPIO = GPIOWrapper()
+    GPIO.setmode(GPIO.BCM)
 else:
     print("Not running on a Raspberry Pi. GPIO functionality will be simulated.")
 
