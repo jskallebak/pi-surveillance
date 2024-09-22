@@ -2,19 +2,19 @@
   "rectangles": [
     {
       "name": "r1",
-      "x": 236,
-      "y": 226,
+      "x": 100,
+      "y": 100,
       "width": 150,
       "height": 80,
       "points_swapped": false,
-      "red_signal": true,
+      "red_signal": false,
       "blue_signal": false,
       "yellow_signal": false
     },
     {
       "name": "r2",
-      "x": 386,
-      "y": 373,
+      "x": 337,
+      "y": 89,
       "width": 200,
       "height": 100,
       "points_swapped": false,
@@ -24,27 +24,96 @@
     },
     {
       "name": "r3",
-      "x": 586,
-      "y": 217,
+      "x": 381,
+      "y": 266,
       "width": 150,
       "height": 80,
-      "points_swapped": false,
+      "points_swapped": true,
+      "red_signal": false,
+      "blue_signal": false,
+      "yellow_signal": false
+    },
+    {
+      "name": "r4",
+      "x": 108,
+      "y": 280,
+      "width": 100,
+      "height": 50,
+      "points_swapped": true,
       "red_signal": false,
       "blue_signal": false,
       "yellow_signal": false
     }
   ],
+  "points": [
+    {
+      "name": "p1",
+      "x": 577,
+      "y": 139
+    },
+    {
+      "name": "p2",
+      "x": 576,
+      "y": 306
+    },
+    {
+      "name": "p3",
+      "x": 67,
+      "y": 305
+    },
+    {
+      "name": "p4",
+      "x": 67,
+      "y": 139
+    }
+  ],
   "lines": [
     {
-      "name": "Line_r2_to_r3",
-      "start_rect": "r2",
-      "end_rect": "r3",
+      "name": "Line_r1_to_r2",
+      "start_shape": "r1",
+      "end_shape": "r2",
       "start_is_output": true
     },
     {
-      "name": "Line_r1_to_r2",
-      "start_rect": "r1",
-      "end_rect": "r2",
+      "name": "Line_r2_to_p1",
+      "start_shape": "r2",
+      "end_shape": "p1",
+      "start_is_output": true
+    },
+    {
+      "name": "Line_p1_to_p2",
+      "start_shape": "p1",
+      "end_shape": "p2",
+      "start_is_output": true
+    },
+    {
+      "name": "Line_p2_to_r3",
+      "start_shape": "p2",
+      "end_shape": "r3",
+      "start_is_output": true
+    },
+    {
+      "name": "Line_r3_to_r4",
+      "start_shape": "r3",
+      "end_shape": "r4",
+      "start_is_output": true
+    },
+    {
+      "name": "Line_r4_to_p3",
+      "start_shape": "r4",
+      "end_shape": "p3",
+      "start_is_output": true
+    },
+    {
+      "name": "Line_p3_to_p4",
+      "start_shape": "p3",
+      "end_shape": "p4",
+      "start_is_output": true
+    },
+    {
+      "name": "Line_p4_to_r1",
+      "start_shape": "p4",
+      "end_shape": "r1",
       "start_is_output": true
     }
   ]

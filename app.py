@@ -138,21 +138,24 @@ class Rectangle:
             raise ValueError("Invalid color. Use 'red', 'blue', or 'yellow'.")
 
 class Line:
-    def __init__(self, name, start_rect, end_rect, start_is_output=True):
+    def __init__(self, name, start_shape, end_shape, start_is_output=True):
         self.name = name
-        self.start_rect = start_rect
-        self.end_rect = end_rect
+        self.start_shape = start_shape
+        self.end_shape = end_shape
         self.start_is_output = start_is_output
         self.canvas_item = None
         self.update_coordinates()
 
     def update_coordinates(self):
-        if self.start_is_output:
-            self.x1, self.y1 = self.start_rect.p2
-            self.x2, self.y2 = self.end_rect.p1
-        else:
-            self.x1, self.y1 = self.start_rect.p1
-            self.x2, self.y2 = self.end_rect.p2
+        if isinstance(self.start_shape, Rectangle):
+            self.x1, self.y1 = self.start_shape.p2 if self.start_is_output else self.start_shape.p1
+        else:  # Point
+            self.x1, self.y1 = self.start_shape.x, self.start_shape.y
+
+        if isinstance(self.end_shape, Rectangle):
+            self.x2, self.y2 = self.end_shape.p1 if self.start_is_output else self.end_shape.p2
+        else:  # Point
+            self.x2, self.y2 = self.end_shape.x, self.end_shape.y
 
     def draw(self, canvas):
         if self.canvas_item:
@@ -162,6 +165,60 @@ class Line:
             self.x1, self.y1, self.x2, self.y2,
             fill="red", width=2
         )
+
+class Point:
+    def __init__(self, name, x, y):
+        self.name = name
+        self.x = x
+        self.y = y
+        self.canvas_item = None
+        self.text_item = None
+        self.is_visible = True
+
+    def draw(self, canvas):
+        if self.canvas_item:
+            canvas.delete(self.canvas_item)
+        if self.text_item:
+            canvas.delete(self.text_item)
+
+        if self.is_visible:
+            point_radius = 3
+            self.canvas_item = canvas.create_oval(
+                self.x - point_radius, self.y - point_radius,
+                self.x + point_radius, self.y + point_radius,
+                fill="black"
+            )
+            self.text_item = canvas.create_text(
+                self.x, self.y - 15,
+                text=self.name,
+                anchor="center",
+                font=("Arial", 8),
+                fill="black"
+            )
+
+    def move_to(self, new_x, new_y):
+        self.x = new_x
+        self.y = new_y
+
+    def toggle_visibility(self):
+        self.is_visible = not self.is_visible
+
+    # Add these methods to make Points compatible with the existing Rectangle interface
+    @property
+    def width(self):
+        return 0
+
+    @property
+    def height(self):
+        return 0
+
+    @property
+    def p1(self):
+        return (self.x, self.y)
+
+    @property
+    def p2(self):
+        return (self.x, self.y)
 
 class DrawingApp:
     def __init__(self, master, live_mode=False, load_file=None):
@@ -180,13 +237,17 @@ class DrawingApp:
             # First row of buttons
             self.add_edit_rectangle_button = tk.Button(self.button_frame, text="Add/Edit Rectangle", command=self.prompt_add_edit_rectangle)
             self.add_edit_rectangle_button.grid(row=0, column=0, padx=5, pady=5)
+
+            # Add new button for adding points
+            self.add_point_button = tk.Button(self.button_frame, text="Add Point", command=self.prompt_add_point)
+            self.add_point_button.grid(row=0, column=1, padx=5, pady=5)
             
             # Second row of buttons
-            self.connect_rectangles_button = tk.Button(self.button_frame, text="Connect Rectangles", command=self.prompt_connect_rectangles)
-            self.connect_rectangles_button.grid(row=1, column=0, padx=5, pady=5)
+            self.connect_shapes_button = tk.Button(self.button_frame, text="Connect Shapes", command=self.prompt_connect_shapes)
+            self.connect_shapes_button.grid(row=1, column=0, padx=5, pady=5)
             
-            self.disconnect_rectangles_button = tk.Button(self.button_frame, text="Disconnect Rectangles", command=self.prompt_disconnect_rectangles)
-            self.disconnect_rectangles_button.grid(row=1, column=1, padx=5, pady=5)
+            self.disconnect_shapes_button = tk.Button(self.button_frame, text="Disconnect Shapes", command=self.prompt_disconnect_shapes)
+            self.disconnect_shapes_button.grid(row=1, column=1, padx=5, pady=5)
             
             self.switch_points_button = tk.Button(self.button_frame, text="Switch Rectangle Points", command=self.prompt_switch_points)
             self.switch_points_button.grid(row=1, column=2, padx=5, pady=5)
@@ -217,10 +278,14 @@ class DrawingApp:
             self.yellow_button = tk.Button(self.control_panel, text="Toggle Yellow", command=lambda: self.toggle_signal_ui("yellow"))
             self.yellow_button.grid(row=0, column=3, padx=5)
 
+            self.toggle_all_points_visibility_button = tk.Button(self.button_frame, text="Toggle All Points Visibility", command=self.toggle_all_points_visibility)
+            self.toggle_all_points_visibility_button.grid(row=2, column=2, padx=5, pady=5) 
+
         self.rectangles = {}
         self.lines = {}
+        self.points = {}
 
-        self.dragged_rect = None
+        self.dragged_shape = None
         self.drag_start_x = 0
         self.drag_start_y = 0
         self.temp_connections = []
@@ -231,14 +296,52 @@ class DrawingApp:
             self.canvas.bind("<B1-Motion>", self.on_drag)
             self.canvas.bind("<ButtonRelease-1>", self.on_release)
 
+        # Set the default canvas file path
+        self.default_canvas_file = "qq.json"
+
         # Load canvas if specified, otherwise create initial setup
+        print(f"load_file: {load_file}")
         if load_file:
-            self.load_canvas(load_file)
+            self.load_canvas(self.default_canvas_file)
         else:
             self.create_initial_setup()
 
 
+    def load_default_canvas(self):
+        try:
+            self.load_canvas(self.default_canvas_file)
+            print(f"Default canvas loaded from {self.default_canvas_file}")
+        except Exception as e:
+            print(f"Error loading default canvas: {str(e)}")
+            print("Creating initial setup instead.")
+            self.create_initial_setup()
+
+    def create_initial_setup(self):
+        # Create default shapes
+        r1 = Rectangle("r1", 100, 100, 150, 80)
+        r2 = Rectangle("r2", 350, 300, 200, 100)
+        r3 = Rectangle("r3", 600, 500, 150, 80)
+        p1 = Point("p1", 200, 200)
+        p2 = Point("p2", 500, 400)
+
+        for rect in [r1, r2, r3]:
+            self.rectangles[rect.name] = rect
+            rect.draw(self.canvas)
+
+        for point in [p1, p2]:
+            self.points[point.name] = point
+            point.draw(self.canvas)
+
+        self.connect_shapes("r1", "r2")
+        self.connect_shapes("r2", "r3")
+        self.connect_shapes("p1", "r2")
+        self.connect_shapes("p2", "r3")
+
+        print("Default initial setup created")
+
+
     def load_canvas_dialog(self):
+        print('HERE')
         file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
         if file_path:
             self.load_canvas(file_path)
@@ -250,6 +353,7 @@ class DrawingApp:
 
         canvas_state = {
             "rectangles": [],
+            "points": [],
             "lines": []
         }
 
@@ -266,11 +370,18 @@ class DrawingApp:
                 "yellow_signal": rect.yellow_signal
             })
 
+        for point in self.points.values():
+            canvas_state["points"].append({
+                "name": point.name,
+                "x": point.x,
+                "y": point.y
+            })
+
         for line in self.lines.values():
             canvas_state["lines"].append({
                 "name": line.name,
-                "start_rect": line.start_rect.name,
-                "end_rect": line.end_rect.name,
+                "start_shape": line.start_shape.name,
+                "end_shape": line.end_shape.name,
                 "start_is_output": line.start_is_output
             })
 
@@ -296,59 +407,29 @@ class DrawingApp:
                 self.rectangles[rect.name] = rect
                 rect.draw(self.canvas)
 
+            for point_data in canvas_state.get("points", []):
+                point = Point(point_data["name"], point_data["x"], point_data["y"])
+                self.points[point.name] = point
+                point.draw(self.canvas)
+
             for line_data in canvas_state["lines"]:
-                start_rect = self.rectangles[line_data["start_rect"]]
-                end_rect = self.rectangles[line_data["end_rect"]]
-                line = Line(line_data["name"], start_rect, end_rect, line_data["start_is_output"])
-                self.lines[line.name] = line
-                line.draw(self.canvas)
+                start_shape = self.rectangles.get(line_data["start_shape"]) or self.points.get(line_data["start_shape"])
+                end_shape = self.rectangles.get(line_data["end_shape"]) or self.points.get(line_data["end_shape"])
+                if start_shape and end_shape:
+                    line = Line(line_data["name"], start_shape, end_shape, line_data["start_is_output"])
+                    self.lines[line.name] = line
+                    line.draw(self.canvas)
 
             print(f"Canvas state loaded from {file_path}")
         except Exception as e:
             print(f"Error loading canvas from {file_path}: {str(e)}")
+
 
     def clear_canvas(self):
         self.canvas.delete("all")
         self.rectangles.clear()
         self.lines.clear()
 
-    def create_initial_setup(self):
-        # Try to load the initial state from a file
-        initial_state_file = "initial_state.json"
-        try:
-            with open(initial_state_file, 'r') as f:
-                canvas_state = json.load(f)
-
-            for rect_data in canvas_state["rectangles"]:
-                rect = Rectangle(rect_data["name"], rect_data["x"], rect_data["y"], rect_data["width"], rect_data["height"])
-                rect.points_swapped = rect_data["points_swapped"]
-                rect.update_connection_points()
-                self.rectangles[rect.name] = rect
-                rect.draw(self.canvas)
-
-            for line_data in canvas_state["lines"]:
-                start_rect = self.rectangles[line_data["start_rect"]]
-                end_rect = self.rectangles[line_data["end_rect"]]
-                line = Line(line_data["name"], start_rect, end_rect, line_data["start_is_output"])
-                self.lines[line.name] = line
-                line.draw(self.canvas)
-
-            print(f"Initial state loaded from {initial_state_file}")
-
-        except FileNotFoundError:
-            # If the file doesn't exist, create the default setup with renamed rectangles
-            r1 = Rectangle("r1", 100, 100, 150, 80)
-            r2 = Rectangle("r2", 350, 300, 200, 100)
-            r3 = Rectangle("r3", 600, 500, 150, 80)
-
-            for rect in [r1, r2, r3]:
-                rect.draw(self.canvas)
-                self.rectangles[rect.name] = rect
-
-            self.connect_rectangles("r1", "r2")
-            self.connect_rectangles("r2", "r3")
-
-            print("Default initial setup created with rectangles r1, r2, and r3")
     def prompt_add_edit_rectangle(self):
         name = simpledialog.askstring("Input", "Enter the name of the rectangle (new or existing):", parent=self.master)
         if name is None or name.strip() == "":
@@ -458,27 +539,27 @@ class DrawingApp:
         self.lines[line_name] = new_line
         self.update_canvas()
 
-    def prompt_disconnect_rectangles(self):
+    def prompt_disconnect_shapes(self):
         if not self.lines:
-            print("No connections to remove. Please connect some rectangles first.")
+            print("No connections to remove. Please connect some shapes first.")
             return
 
-        rect1_name = simpledialog.askstring("Input", "Enter the name of the first rectangle:", parent=self.master)
-        rect2_name = simpledialog.askstring("Input", "Enter the name of the second rectangle:", parent=self.master)
+        shape1_name = simpledialog.askstring("Input", "Enter the name of the first shape:", parent=self.master)
+        shape2_name = simpledialog.askstring("Input", "Enter the name of the second shape:", parent=self.master)
 
-        line_name = f"Line_{rect1_name}_to_{rect2_name}"
-        reverse_line_name = f"Line_{rect2_name}_to_{rect1_name}"
+        line_name = f"Line_{shape1_name}_to_{shape2_name}"
+        reverse_line_name = f"Line_{shape2_name}_to_{shape1_name}"
 
         if line_name in self.lines:
             self.canvas.delete(self.lines[line_name].canvas_item)
             del self.lines[line_name]
-            print(f"Disconnected {rect1_name} from {rect2_name}")
+            print(f"Disconnected {shape1_name} from {shape2_name}")
         elif reverse_line_name in self.lines:
             self.canvas.delete(self.lines[reverse_line_name].canvas_item)
             del self.lines[reverse_line_name]
-            print(f"Disconnected {rect2_name} from {rect1_name}")
+            print(f"Disconnected {shape2_name} from {shape1_name}")
         else:
-            print(f"No connection found between {rect1_name} and {rect2_name}")
+            print(f"No connection found between {shape1_name} and {shape2_name}")
 
     def prompt_switch_points(self):
         if not self.rectangles:
@@ -525,83 +606,102 @@ class DrawingApp:
     def on_press(self, event):
         if self.live_mode:
             return
-        for rect in self.rectangles.values():
-            if rect.x <= event.x <= rect.x + rect.width and rect.y <= event.y <= rect.y + rect.height:
-                self.dragged_rect = rect
-                self.drag_start_x = event.x - rect.x
-                self.drag_start_y = event.y - rect.y
-                # Store connections with direction information
-                self.temp_connections = self.get_connected_with_info(rect.name)
-
-                self.remove_connections(rect.name)
-                break
+        
+        for shape in list(self.rectangles.values()) + list(self.points.values()):
+            if isinstance(shape, Rectangle):
+                if shape.x <= event.x <= shape.x + shape.width and shape.y <= event.y <= shape.y + shape.height:
+                    self.dragged_shape = shape
+                    self.drag_start_x = event.x - shape.x
+                    self.drag_start_y = event.y - shape.y
+                    break
+            elif isinstance(shape, Point):
+                if shape.x - 5 <= event.x <= shape.x + 5 and shape.y - 5 <= event.y <= shape.y + 5:
+                    self.dragged_shape = shape
+                    self.drag_start_x = event.x - shape.x
+                    self.drag_start_y = event.y - shape.y
+                    break
+        
+        if self.dragged_shape:
+            self.temp_connections = self.get_connected_with_info(self.dragged_shape.name)
+            self.remove_connections(self.dragged_shape.name)
 
     def on_drag(self, event):
-        if self.live_mode or not self.dragged_rect:
+        if self.live_mode or not self.dragged_shape:
             return
         new_x = event.x - self.drag_start_x
         new_y = event.y - self.drag_start_y
-        self.dragged_rect.move_to(new_x, new_y)
-        self.dragged_rect.draw(self.canvas)
+        self.dragged_shape.move_to(new_x, new_y)
+        self.dragged_shape.draw(self.canvas)
+        self.update_connected_lines(self.dragged_shape)
 
     def on_release(self, event):
         if self.live_mode:
             return
-        if self.dragged_rect:
+        if self.dragged_shape:
             # Reconnect stored connections
-            self.reconnect(self.dragged_rect.name, self.temp_connections)
-            self.dragged_rect = None
+            self.reconnect(self.dragged_shape.name, self.temp_connections)
+            self.dragged_shape = None
             self.temp_connections = []
             self.update_canvas()
 
-    def remove_connections(self, rect_name):
-        rect = self.rectangles[rect_name]
+    def remove_connections(self, shape_name):
+        shape = self.rectangles.get(shape_name) or self.points.get(shape_name)
         lines_to_remove = []
         for line_name, line in self.lines.items():
-            if line.start_rect == rect or line.end_rect == rect:
+            if line.start_shape == shape or line.end_shape == shape:
                 self.canvas.delete(line.canvas_item)
                 lines_to_remove.append(line_name)
         for line_name in lines_to_remove:
             del self.lines[line_name]
 
-    def reconnect(self, rect_name, connected_info):
-        for connected_rect, is_output, line_name in connected_info:
-            print('Reconnecting:', connected_rect.name, is_output, line_name)
+    def reconnect(self, shape_name, connected_info):
+        shape = self.get_shape_by_name(shape_name)
+        if not shape:
+            print(f"Error reconnecting: shape '{shape_name}' not found")
+            return
+
+        for connected_shape, is_output, line_name in connected_info:
             if is_output:
-                start_rect = self.rectangles[rect_name]
-                end_rect = connected_rect
-                self.connect_rectangles(start_rect.name, end_rect.name)
+                self.connect_shapes(shape.name, connected_shape.name)
             else:
-                start_rect = connected_rect
-                end_rect = self.rectangles[rect_name]
-                self.connect_rectangles(start_rect.name, end_rect.name)
+                self.connect_shapes(connected_shape.name, shape.name)
 
 
-    def get_connected_with_info(self, rect_name):
-        if rect_name not in self.rectangles:
-            print(f"No rectangle named '{rect_name}' found.")
+    def get_connected_with_info(self, shape_name):
+        shape = self.get_shape_by_name(shape_name)
+        if not shape:
+            print(f"No shape named '{shape_name}' found.")
             return []
 
-        rect = self.rectangles[rect_name]
         connected = []
 
         for line in self.lines.values():
-            if line.start_rect == rect:
-                connected.append((line.end_rect, True, line.name))  # True indicates rect is the output
-            elif line.end_rect == rect:
-                connected.append((line.start_rect, False, line.name))  # False indicates rect is the input
+            if line.start_shape == shape:
+                connected.append((line.end_shape, True, line.name))
+            elif line.end_shape == shape:
+                connected.append((line.start_shape, False, line.name))
 
         return connected
+    
+    def get_shape_by_name(self, name):
+        return self.rectangles.get(name) or self.points.get(name)
 
-    def update_connected_lines(self, rect):
+    def update_connected_lines(self, shape):
         for line in self.lines.values():
-            if line.start_rect == rect or line.end_rect == rect:
+            if line.start_shape == shape or line.end_shape == shape:
+                line.update_coordinates()
                 line.draw(self.canvas)
-        self.redraw_all_rectangles()
 
     def update_canvas(self):
+        self.canvas.delete("all")  # Clear the canvas
         self.draw_all_lines()
         self.redraw_all_rectangles()
+        self.redraw_all_points()
+
+    def redraw_all_points(self):
+        for point in self.points.values():
+            if point.is_visible:
+                point.draw(self.canvas)
 
     def redraw_all_rectangles(self):
         for rect in self.rectangles.values():
@@ -645,10 +745,78 @@ class DrawingApp:
         else:
             print(f"Rectangle '{rect_name}' not found.")
 
+    def prompt_add_point(self):
+        name = simpledialog.askstring("Input", "Enter the name of the point:", parent=self.master)
+        if name is None or name.strip() == "":
+            print("Operation cancelled or invalid name.")
+            return
+        
+        x = simpledialog.askinteger("Input", f"Enter x coordinate for {name}:", parent=self.master)
+        y = simpledialog.askinteger("Input", f"Enter y coordinate for {name}:", parent=self.master)
+        
+        if x is not None and y is not None:
+            point = Point(name, x, y)
+            self.points[name] = point
+            point.draw(self.canvas)
+            print(f"Point '{name}' created at ({x}, {y}).")
+        else:
+            print("Operation cancelled or invalid input.")
+
+    def prompt_move_shape(self):       
+        if isinstance(shape, Point):
+            new_x = simpledialog.askinteger("Input", f"Enter new x coordinate for {name}:", parent=self.master)
+            new_y = simpledialog.askinteger("Input", f"Enter new y coordinate for {name}:", parent=self.master)
+            
+            if new_x is not None and new_y is not None:
+                shape.move_to(new_x, new_y)
+                shape.draw(self.canvas)
+                self.update_connected_lines(shape)
+                print(f"Point '{name}' moved to ({new_x}, {new_y}).")
+            else:
+                print("Move operation cancelled or invalid input.")
+
+    def prompt_connect_shapes(self):
+        if len(self.rectangles) + len(self.points) < 2:
+            print("You need at least two shapes to connect. Please create more shapes.")
+            return
+
+        shape1_name = simpledialog.askstring("Input", "Enter the name of the first shape:", parent=self.master)
+        shape2_name = simpledialog.askstring("Input", "Enter the name of the second shape:", parent=self.master)
+
+        self.connect_shapes(shape1_name, shape2_name)
+
+    def connect_shapes(self, shape1_name, shape2_name):
+        shape1 = self.get_shape_by_name(shape1_name)
+        shape2 = self.get_shape_by_name(shape2_name)
+
+        if not shape1 or not shape2:
+            print(f"Cannot connect: one or both shapes not found.")
+            return
+
+        line_name = f"Line_{shape1_name}_to_{shape2_name}"
+        new_line = Line(line_name, shape1, shape2, True)
+        self.lines[line_name] = new_line
+        new_line.draw(self.canvas)
+        print(f"Connected {shape1_name} to {shape2_name}")
+
+    def toggle_all_points_visibility(self):
+        visibility_changed = False
+        for point in self.points.values():
+            point.toggle_visibility()
+            visibility_changed = True
+        
+        if visibility_changed:
+            self.update_canvas()
+            visibility = "visible" if next(iter(self.points.values())).is_visible else "hidden"
+            print(f"All points are now {visibility}.")
+        else:
+            print("No points to toggle visibility.")
+
+
 
 if __name__ == "__main__":
     live_mode = "--live" in sys.argv
-    load_file = None
+    load_file = True
 
     for arg in sys.argv:
         if arg.startswith("--load="):
