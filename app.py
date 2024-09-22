@@ -127,16 +127,6 @@ class Rectangle:
         else:
             raise ValueError("Invalid color. Use 'red', 'blue', or 'yellow'.")
 
-    def get_signal(self, color):
-        if color == "red":
-            return self.red_signal
-        elif color == "blue":
-            return self.blue_signal
-        elif color == "yellow":
-            return self.yellow_signal
-        else:
-            raise ValueError("Invalid color. Use 'red', 'blue', or 'yellow'.")
-
 class Line:
     def __init__(self, name, start_shape, end_shape, start_is_output=True):
         self.name = name
@@ -374,7 +364,8 @@ class DrawingApp:
             canvas_state["points"].append({
                 "name": point.name,
                 "x": point.x,
-                "y": point.y
+                "y": point.y,
+                "is_visible": point.is_visible 
             })
 
         for line in self.lines.values():
@@ -409,8 +400,10 @@ class DrawingApp:
 
             for point_data in canvas_state.get("points", []):
                 point = Point(point_data["name"], point_data["x"], point_data["y"])
+                point.is_visible = point_data.get("is_visible", True)
                 self.points[point.name] = point
-                point.draw(self.canvas)
+                if point.is_visible:
+                    point.draw(self.canvas)
 
             for line_data in canvas_state["lines"]:
                 start_shape = self.rectangles.get(line_data["start_shape"]) or self.points.get(line_data["start_shape"])
@@ -800,17 +793,19 @@ class DrawingApp:
         print(f"Connected {shape1_name} to {shape2_name}")
 
     def toggle_all_points_visibility(self):
-        visibility_changed = False
-        for point in self.points.values():
-            point.toggle_visibility()
-            visibility_changed = True
-        
-        if visibility_changed:
-            self.update_canvas()
-            visibility = "visible" if next(iter(self.points.values())).is_visible else "hidden"
-            print(f"All points are now {visibility}.")
-        else:
+        if not self.points:
             print("No points to toggle visibility.")
+            return
+
+        # Determine the new visibility state based on the first point
+        new_visibility = not next(iter(self.points.values())).is_visible
+
+        for point in self.points.values():
+            point.is_visible = new_visibility
+
+        self.update_canvas()
+        visibility = "visible" if new_visibility else "hidden"
+        print(f"All points are now {visibility}.")
 
 
 

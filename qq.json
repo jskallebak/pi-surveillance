@@ -49,22 +49,26 @@
     {
       "name": "p1",
       "x": 577,
-      "y": 139
+      "y": 139,
+      "is_visible": false
     },
     {
       "name": "p2",
       "x": 576,
-      "y": 306
+      "y": 306,
+      "is_visible": false
     },
     {
       "name": "p3",
       "x": 67,
-      "y": 305
+      "y": 305,
+      "is_visible": false
     },
     {
       "name": "p4",
       "x": 67,
-      "y": 139
+      "y": 139,
+      "is_visible": false
     }
   ],
   "lines": [
