@@ -1,6 +1,11 @@
 import platform
 import sys
 import random
+import tkinter as tk
+from tkinter import simpledialog, filedialog
+import json
+from time import sleep
+from threading import Thread
 
 is_raspberry_pi = platform.machine().startswith('aarch64')
 print(f"Running on a Raspberry Pi: {is_raspberry_pi}")
@@ -12,7 +17,6 @@ if is_raspberry_pi:
     class GPIOWrapper:
         def __init__(self):
             self.simulating = False
-            # Add these attributes
             self.BCM = RealGPIO.BCM
             self.IN = RealGPIO.IN
             self.OUT = RealGPIO.OUT
@@ -79,7 +83,7 @@ else:
             pull_up_down_str = f" with pull_up_down={pull_up_down}" if pull_up_down else ""
             print(f"Mock: Setting up GPIO pin {pin} as {'input' if mode == self.IN else 'output'}{pull_up_down_str}")
             if pin not in self.pin_values:
-                self.pin_values[pin] = self.LOW  # Initialize to LOW
+                self.pin_values[pin] = self.LOW 
 
         def input(self, pin):
             if pin not in self.pin_values:
@@ -101,12 +105,6 @@ else:
 
     GPIO = MockGPIO()
 
-
-import tkinter as tk
-from tkinter import simpledialog, filedialog
-import json
-from time import sleep
-from threading import Thread
 
 class Rectangle:
     def __init__(self, name, x, y, width, height, gpio=None):
@@ -214,7 +212,7 @@ class Rectangle:
         
         if self.gpio is not None:
             self.gpio_text_item = canvas.create_text(
-                self.x + 5, self.y + 20,  # Adjust the y-coordinate as needed
+                self.x + 5, self.y + 20,
                 text=f"gpio: {self.gpio}",
                 anchor="nw",
                 font=("Arial", 8),
@@ -366,7 +364,7 @@ class Point:
     def toggle_visibility(self):
         self.is_visible = not self.is_visible
 
-    # Add these methods to make Points compatible with the existing Rectangle interface
+    # Addded these methods to make Points compatible with the existing Rectangle interface
     @property
     def width(self):
         return 0
@@ -565,7 +563,7 @@ class DrawingApp:
                 "y": rect.y,
                 "width": rect.width,
                 "height": rect.height,
-                "gpio": rect.gpio,  # Add this line to save the GPIO value
+                "gpio": rect.gpio,  # Save the GPIO pin
                 "points_swapped": rect.points_swapped,
                 "red_signal": rect.red_signal,
                 "blue_signal": rect.blue_signal,
@@ -795,10 +793,8 @@ class DrawingApp:
         
         rectangle = self.rectangles[name]
         
-        # Disconnect all lines connected to this rectangle
         self.remove_connections(name)
         
-        # Switch the points
         rectangle.switch_points()
         rectangle.draw(self.canvas)
         
@@ -852,7 +848,6 @@ class DrawingApp:
         self.dragged_shape.move_to(new_x, new_y)
         self.dragged_shape.draw(self.canvas)
         
-        # Update connected lines
         self.update_connected_lines(self.dragged_shape)
 
     def on_release(self, event):
@@ -1069,7 +1064,6 @@ class DrawingApp:
         
         print("Exiting application...")
         sys.exit(0)
-
 
 
 if __name__ == "__main__":
