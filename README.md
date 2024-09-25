@@ -13,7 +13,8 @@ chip = gpiod.Chip('gpiochip0') <--- hvis dette ikke er den rigtige chip på dit 
 prøv   
 ls /dev/gpiochip*
 
-og skriv chip = gpiod.Chip('skriv her')
+og skriv hvad du får  
+chip = gpiod.Chip('skriv her')
 
 
 inPin1 = chip.get_line(21) <----- Skriv de porte du bruger  
